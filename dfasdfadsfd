@@ -1,0 +1,134 @@
+[1mdiff --git a/main.py b/main.py[m
+[1mindex 6966a4d..c016b6a 100644[m
+[1m--- a/main.py[m
+[1m+++ b/main.py[m
+[36m@@ -6,9 +6,113 @@[m [mroot = tk.Tk() # окно приложения[m
+ root.title("Multitool")[m
+ root.geometry("300x400")[m
+ [m
+[32m+[m[32mcpu_label = tk.Label(root, text="CPU: -")[m
+[32m+[m[32mcpu_label.pack()[m
+[32m+[m
+[32m+[m[32mvram_label = tk.Label(root, text="GPU: -")[m
+[32m+[m[32mvram_label.pack()[m
+[32m+[m
+[32m+[m[32mram_label = tk.Label(root, text="RAM: -")[m
+[32m+[m[32mram_label.pack()[m
+[32m+[m
+[32m+[m
+ notepad_on = tk.BooleanVar(value=False) # привязана к чекбоксу, если чекбокс отмечен, то процесс ping запущен[m
+ notepad_process = None # процесс ping[m
+ [m
+[32m+[m[32mdef update_cpu():[m
+[32m+[m[32m    cpu = psutil.cpu_percent(interval=None)[m
+[32m+[m[32m    cpu_label.config(text=f"CPU: {cpu:.0f}%")[m
+[32m+[m[32m    root.after(1000, update_cpu)  # повторить через 1 сек[m
+[32m+[m
+[32m+[m[32mdef update_ram():[m
+[32m+[m[32m    mem = psutil.virtual_memory()[m
+[32m+[m[32m    used_gb = mem.used / (1024 ** 3)[m
+[32m+[m[32m    total_gb = mem.total / (1024 ** 3)[m
+[32m+[m[32m    ram_label.config(text=f"RAM: {used_gb:.1f}/{total_gb:.1f} GB ({mem.percent:.0f}%)")[m
+[32m+[m[32m    root.after(1000, update_ram)[m
+[32m+[m
+[32m+[m[32mdef update_vram():[m
+[32m+[m[32m    try:[m
+[32m+[m[32m        result = subprocess.run([m
+[32m+[m[32m            ["powershell", "-NoProfile", "-Command", "(Get-Counter '\\GPU Adapter Memory(*)\\Dedicated Usage').CounterSamples | ForEach-Object { $_.CookedValue }"],[m
+[32m+[m[32m            capture_output=True,[m
+[32m+[m[32m            text=True,[m
+[32m+[m[32m            creationflags=subprocess.CREATE_NO_WINDOW,[m
+[32m+[m[32m        )[m
+[32m+[m[32m        values = [[m
+[32m+[m[32m            float(line.strip())[m
+[32m+[m[32m            for line in result.stdout.splitlines()[m
+[32m+[m[32m            if line.strip()[m
+[32m+[m[32m        ][m
+[32m+[m[32m        used_bytes = max(values) if values else 0[m
+[32m+[m[32m        used_gb = used_bytes / (1024 ** 3)[m
+[32m+[m[32m        total_gb = VRAM_TOTAL_GB[m
+[32m+[m[32m        percent = (used_gb / total_gb) * 100[m
+[32m+[m[32m        vram_label.config(text=f"VRAM: {used_gb:.1f}/{total_gb:.1f} GB ({percent:.0f}%)")[m
+[32m+[m[32m    except Exception:[m
+[32m+[m[32m        vram_label.config(text="VRAM: N/A")[m
+[32m+[m[32m    root.after(1000, update_vram)  # повторить через 1 сек — даже после ошибки[m
+[32m+[m
+[32m+[m[32m# WMI AdapterRAM часто врёт (>4 GB режется до ~4). Для известных карт — свои значения.[m
+[32m+[m[32mKNOWN_VRAM_GB = {[m
+[32m+[m[32m    "7600": 8,[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32mdef get_amd_vram_total_gb():[m
+[32m+[m[32m    try:[m
+[32m+[m[32m        result = subprocess.run([m
+[32m+[m[32m            [[m
+[32m+[m[32m                "powershell",[m
+[32m+[m[32m                "-NoProfile",[m
+[32m+[m[32m                "-Command",[m
+[32m+[m[32m                "Get-CimInstance Win32_VideoController | Select-Object Name, AdapterRAM | ConvertTo-Json",[m
+[32m+[m[32m            ],[m
+[32m+[m[32m            capture_output=True,[m
+[32m+[m[32m            text=True,[m
+[32m+[m[32m            creationflags=subprocess.CREATE_NO_WINDOW,[m
+[32m+[m[32m        )[m
+[32m+[m[32m        import json[m
+[32m+[m[32m        data = json.loads(result.stdout)[m
+[32m+[m[32m        if isinstance(data, dict):[m
+[32m+[m[32m            data = [data][m
+[32m+[m[32m        for gpu in data:[m
+[32m+[m[32m            name = (gpu.get("Name") or "").lower()[m
+[32m+[m[32m            if "amd" not in name and "radeon" not in name:[m
+[32m+[m[32m                continue[m
+[32m+[m[32m            for key, gb in KNOWN_VRAM_GB.items():[m
+[32m+[m[32m                if key in name:[m
+[32m+[m[32m                    return float(gb)[m
+[32m+[m[32m            ram = gpu.get("AdapterRAM")[m
+[32m+[m[32m            if ram:[m
+[32m+[m[32m                gb = ram / (1024 ** 3)[m
+[32m+[m[32m                # ~4 GB из WMI на картах >4 GB — не доверяем[m
+[32m+[m[32m                if 3.9 <= gb <= 4.1:[m
+[32m+[m[32m                    return None[m
+[32m+[m[32m                return gb[m
+[32m+[m[32m        return None[m
+[32m+[m[32m    except Exception:[m
+[32m+[m[32m        return None[m
+[32m+[m
+[32m+[m[32mVRAM_TOTAL_GB = get_amd_vram_total_gb() or 8.0[m
+[32m+[m
+[32m+[m[32mdef get_amd_gpu_name():[m
+[32m+[m[32m    try:[m
+[32m+[m[32m        result=subprocess.run([[m
+[32m+[m[32m            "powershell",[m
+[32m+[m[32m            "-NoProfile",[m
+[32m+[m[32m            "-Command",[m
+[32m+[m[32m            "(Get-CimInstance Win32_VideoController | Where-Object { $_.Name -match 'AMD|Radeon' } | Select-Object -First 1 -ExpandProperty Name)"[m
+[32m+[m[32m        ],[m
+[32m+[m[32m        capture_output=True,[m
+[32m+[m[32m        text=True,[m
+[32m+[m[32m        creationflags=subprocess.CREATE_NO_WINDOW,[m
+[32m+[m[32m        )[m
+[32m+[m[32m        name = result.stdout.strip()[m
+[32m+[m[32m        return name or "AMD GPU"[m
+[32m+[m[32m    except Exception:[m
+[32m+[m[32m        return "AMD GPU"[m
+[32m+[m[32mvram_label.config(text=f"GPU: {get_amd_gpu_name()}")[m
+[32m+[m
+ def notepad_on_click():[m
+     global notepad_process # global сообщает Python, что внутри функции мы хотим работать с переменной, объявленной вне функции[m
+     if notepad_on.get():[m
+[36m@@ -40,10 +144,13 @@[m [mdef kill_by_name(process_name: str) -> None:[m
+         if name and name.lower() == process_name.lower():[m
+             try:[m
+                 proc.kill()[m
+[31m-            except (psutil.NoSuchProcess, psutil.AccesDenied):[m
+[32m+[m[32m            except (psutil.NoSuchProcess, psutil.AccessDenied):[m
+                 pass[m
+ print(is_running("Lightshot.exe"))[m
+ notepad_checkbutton.pack()[m
+ root.after(1000, check_process)[m
+[32m+[m[32mroot.after(1000, update_cpu)[m
+[32m+[m[32mroot.after(1000, update_vram)[m
+[32m+[m[32mroot.after(1000, update_ram)[m
+ [m
+ root.mainloop()[m
+\ No newline at end of file[m
